@@ -18,5 +18,5 @@ python-dotenv==1.0.1
 # PDF / Report
 reportlab==4.2.2
 
-# Database (standard lib, optional binary package)
-sqlite3-binary==0.0.1
+firebase-admin==6.6.0
+

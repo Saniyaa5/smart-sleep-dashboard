@@ -1,22 +1,22 @@
 # Core
-pandas==2.2.2
-numpy==1.26.4
-joblib==1.4.2
-scikit-learn==1.5.0
+pandas
+numpy
+joblib
+scikit-learn
 
 # Visualization
-matplotlib==3.9.0
-plotly==5.22.0
+matplotlib
+plotly
 
 # Web App
-streamlit==1.38.0
+streamlit
 
 # Utilities
-requests==2.32.3
-python-dotenv==1.0.1
+requests
+python-dotenv
 
 # PDF / Report
-reportlab==4.2.2
+reportlab
 
-firebase-admin==6.6.0
-
+# Firebase Integration
+firebase-admin

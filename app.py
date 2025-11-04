@@ -1,5 +1,5 @@
 # app.py
-# Smart Sleep Dashboard — improved persistence, email validation, nicer UI
+# 🩺 Smart Sleep Dashboard — Robust, Secure, Cloud-Ready Version
 
 import streamlit as st
 st.set_page_config(page_title="Sleep Apnea Dashboard", layout="wide", page_icon="🩺")
@@ -23,10 +23,20 @@ import hashlib
 # Environment & Model
 # --------------------------
 load_dotenv()
-EMAIL_USER = os.getenv("EMAIL_USER") or st.secrets.get("EMAIL_USER") if "secrets" in dir(st) else None
-EMAIL_PASS = os.getenv("EMAIL_PASS") or st.secrets.get("EMAIL_PASS") if "secrets" in dir(st) else None
 
-MODEL_PATH = r"C:\Users\SANIYA SULTHANA\FYPROJECT\sleep_apnea_model.pkl"
+# Load email credentials (works for both local and Streamlit Cloud)
+EMAIL_USER = None
+EMAIL_PASS = None
+
+if "secrets" in dir(st) and "EMAIL_USER" in st.secrets:
+    EMAIL_USER = st.secrets["EMAIL_USER"]
+    EMAIL_PASS = st.secrets["EMAIL_PASS"]
+else:
+    EMAIL_USER = os.getenv("EMAIL_USER")
+    EMAIL_PASS = os.getenv("EMAIL_PASS")
+
+# Auto-detect model path (works locally + on Streamlit Cloud)
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "sleep_apnea_model.pkl")
 
 @st.cache_resource
 def load_model():
@@ -35,10 +45,13 @@ def load_model():
 model = None
 try:
     model = load_model()
+    st.success("✅ Model loaded successfully!")
+except FileNotFoundError:
+    st.error("❌ Model file not found. Please ensure 'sleep_apnea_model.pkl' is in the same folder as app.py.")
 except Exception as e:
-    st.warning("Model couldn't be loaded automatically. If you are in development, ignore this. Error: " + str(e))
+    st.warning(f"⚠️ Model couldn't be loaded automatically. Error: {e}")
 
-TRAIN_FEATURES = getattr(model, "feature_names_in_", None)
+TRAIN_FEATURES = getattr(model, "feature_names_in_", []) if model else []
 
 # --------------------------
 # Utility functions
@@ -64,7 +77,6 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     c = conn.cursor()
-    # Users table
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
@@ -72,7 +84,6 @@ def init_db():
             role TEXT NOT NULL
         )
     """)
-    # Patients table
     c.execute("""
         CREATE TABLE IF NOT EXISTS patients (
             patient_id TEXT,
@@ -94,8 +105,7 @@ def register_user(username, password, role):
     if c.fetchone():
         conn.close()
         return False, "Username already exists"
-    c.execute("INSERT INTO users (username,password,role) VALUES (?,?,?)",
-              (username, hashed, role))
+    c.execute("INSERT INTO users (username,password,role) VALUES (?,?,?)", (username, hashed, role))
     conn.commit()
     conn.close()
     return True, "Registered successfully"
@@ -138,17 +148,15 @@ def feature_engineer(df, window=5):
 # --------------------------
 def send_email_alert(to_email, patient_name):
     if not EMAIL_USER or not EMAIL_PASS:
-        st.error("Email credentials are not configured (EMAIL_USER / EMAIL_PASS). Alerts disabled.")
+        st.warning("Email alerts are disabled (missing credentials).")
         return False
-
     if not is_valid_email(to_email):
-        st.error("Guardian email is not valid; can't send alert.")
+        st.error("Guardian email is invalid.")
         return False
 
     try:
         subject = "⚠️ Sleep Apnea Alert!"
         body = f"Patient {patient_name} shows abnormal sleep patterns. Please check immediately."
-
         msg = MIMEMultipart()
         msg["From"] = EMAIL_USER
         msg["To"] = to_email
@@ -160,11 +168,10 @@ def send_email_alert(to_email, patient_name):
         server.login(EMAIL_USER, EMAIL_PASS)
         server.send_message(msg)
         server.quit()
-
         st.success(f"📩 Alert email sent to {to_email}")
         return True
     except Exception as e:
-        st.error(f"⚠️ Error sending alert: {e}")
+        st.error(f"⚠️ Error sending email: {e}")
         return False
 
 # --------------------------
@@ -173,7 +180,6 @@ def send_email_alert(to_email, patient_name):
 def generate_pdf_report(patient_info, df_proc):
     buffer = BytesIO()
     with PdfPages(buffer) as pdf:
-        # Page 1: Patient Info
         fig, ax = plt.subplots(figsize=(8,6))
         ax.axis('off')
         info_text = (
@@ -189,7 +195,6 @@ def generate_pdf_report(patient_info, df_proc):
         pdf.savefig(fig)
         plt.close()
 
-        # Page 2: HR & SpO2 Trends
         if "time_sec" in df_proc.columns:
             fig, ax = plt.subplots(figsize=(10,4))
             ax.plot(df_proc["time_sec"], df_proc["heart_rate"], label="Heart Rate")
@@ -198,29 +203,22 @@ def generate_pdf_report(patient_info, df_proc):
             ax.legend()
             pdf.savefig(fig)
             plt.close()
-
     buffer.seek(0)
     return buffer
 
 # --------------------------
-# UI helpers & CSS
+# UI & Layout
 # --------------------------
 def local_css():
-    st.markdown(
-        """
+    st.markdown("""
         <style>
         .stApp { background: linear-gradient(180deg, #f7fbff 0%, #ffffff 100%); }
         .title { font-size:32px; font-weight:700; color:#0b486b; }
-        .card { padding: 12px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); background: white; }
         </style>
-        """, unsafe_allow_html=True
-    )
+    """, unsafe_allow_html=True)
 
 local_css()
 
-# --------------------------
-# Init DB & Session
-# --------------------------
 init_db()
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -228,7 +226,7 @@ if "logged_in" not in st.session_state:
     st.session_state.user = None
 
 # --------------------------
-# Sidebar menu
+# Sidebar Navigation
 # --------------------------
 st.sidebar.title("Menu")
 menu = ["Doctor Register", "Doctor Login", "Admin Register", "Admin Login"]
@@ -238,18 +236,18 @@ st.markdown('<div class="title">🩺 Smart Sleep Dashboard</div>', unsafe_allow_
 st.markdown("---")
 
 # --------------------------
-# Register / Login forms
+# Auth System
 # --------------------------
 if choice in ("Doctor Register", "Admin Register"):
     role = "doctor" if choice == "Doctor Register" else "admin"
     st.subheader(f"{role.capitalize()} Registration")
-    with st.form(key=f"reg_form_{role}", clear_on_submit=False):
-        username = st.text_input("Username", key=f"{role}_reg_user")
-        password = st.text_input("Password", type="password", key=f"{role}_reg_pass")
+    with st.form(f"reg_form_{role}"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
         submit = st.form_submit_button("Register")
     if submit:
         if not username or not password:
-            st.error("Please fill username and password.")
+            st.error("Please fill all fields.")
         else:
             ok, msg = register_user(username.strip(), password, role)
             if ok:
@@ -263,9 +261,9 @@ if choice in ("Doctor Register", "Admin Register"):
 elif choice in ("Doctor Login", "Admin Login"):
     role = "doctor" if choice == "Doctor Login" else "admin"
     st.subheader(f"{role.capitalize()} Login")
-    with st.form(key=f"login_form_{role}"):
-        username = st.text_input("Username", key=f"{role}_login_user")
-        password = st.text_input("Password", type="password", key=f"{role}_login_pass")
+    with st.form(f"login_form_{role}"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
         submit = st.form_submit_button("Login")
     if submit:
         role_found = login_user(username.strip(), password)
@@ -278,62 +276,45 @@ elif choice in ("Doctor Login", "Admin Login"):
             st.error("Invalid credentials ❌")
 
 # --------------------------
-# Doctor Section (after login)
+# Doctor Dashboard
 # --------------------------
 if st.session_state.get("logged_in") and st.session_state.get("role") == "doctor":
     st.subheader("Patient Info & CSV Upload")
-    st.markdown("Use the form below to upload patient CSV and run apnea detection.")
-
     with st.expander("Enter patient details"):
-        with st.form("patient_form", clear_on_submit=False):
+        with st.form("patient_form"):
             col1, col2 = st.columns([1,2])
             with col1:
-                patient_id = st.text_input("Patient ID", key="patient_id")
-                patient_name = st.text_input("Patient Name", key="patient_name")
-                age = st.number_input(
-                    "Age", min_value=0, max_value=120, value=25, step=1, key="age"
-                )
-                gender = st.selectbox("Gender", ["Male", "Female", "Other"], key="gender")
-                weight = st.number_input(
-                    "Weight (kg)", min_value=20.0, max_value=200.0, value=60.0, step=0.1, key="weight"
-                )
-                guardian = st.text_input("Guardian Email", key="guardian")
+                patient_id = st.text_input("Patient ID")
+                patient_name = st.text_input("Patient Name")
+                age = st.number_input("Age", min_value=0, max_value=120, value=25)
+                gender = st.selectbox("Gender", ["Male", "Female", "Other"])
+                weight = st.number_input("Weight (kg)", min_value=20.0, max_value=200.0, value=60.0)
+                guardian = st.text_input("Guardian Email")
             with col2:
-                uploaded_file = st.file_uploader("Upload CSV (heart_rate, spo2, time_sec)", type=["csv"], key="csv")
-                st.write("CSV must include `heart_rate` and `spo2`. Optional `time_sec` for plotting.")
+                uploaded_file = st.file_uploader("Upload CSV (heart_rate, spo2, time_sec)", type=["csv"])
             submitted = st.form_submit_button("Process CSV")
 
     if submitted:
         if not patient_name or not patient_id:
             st.error("Please provide Patient ID and Name.")
         elif guardian and not is_valid_email(guardian):
-            st.error("Guardian email looks invalid. Please correct.")
+            st.error("Invalid guardian email.")
         elif not uploaded_file:
             st.error("Please upload a CSV file.")
         else:
             try:
                 df = pd.read_csv(uploaded_file)
-            except Exception as e:
-                st.error("Error reading CSV: " + str(e))
-                df = None
-
-            if df is not None:
                 if not {"heart_rate", "spo2"}.issubset(df.columns):
                     st.error("CSV must contain 'heart_rate' and 'spo2' columns.")
                 else:
                     df_proc = feature_engineer(df)
-                    if TRAIN_FEATURES is not None:
-                        X_test = df_proc.reindex(columns=TRAIN_FEATURES, fill_value=0)
-                    else:
-                        X_test = df_proc.drop(columns=['apnea_label','patient_id','time_sec'], errors='ignore')
-
-                    if model is None:
-                        st.error("Model not available — prediction skipped.")
-                        df_proc["predicted_apnea"] = 0
-                        apnea_events = 0
-                    else:
-                        df_proc["predicted_apnea"] = model.predict(X_test)
-                        apnea_events = int(df_proc["predicted_apnea"].sum())
+                    X_test = (
+                        df_proc.reindex(columns=TRAIN_FEATURES, fill_value=0)
+                        if TRAIN_FEATURES else
+                        df_proc.drop(columns=['apnea_label','patient_id','time_sec'], errors='ignore')
+                    )
+                    df_proc["predicted_apnea"] = model.predict(X_test) if model else 0
+                    apnea_events = int(df_proc["predicted_apnea"].sum())
 
                     patient_info = {
                         "patient_id": patient_id,
@@ -344,71 +325,51 @@ if st.session_state.get("logged_in") and st.session_state.get("role") == "doctor
                         "guardian": guardian
                     }
                     store_patient_info(patient_info)
-
                     st.success(f"✅ Total Apnea Events Detected: {apnea_events}")
 
-                    # Updated Interactive Plot
                     if "time_sec" in df_proc.columns:
                         fig = go.Figure()
                         fig.add_trace(go.Scatter(
                             x=df_proc["time_sec"], y=df_proc["heart_rate"],
-                            mode="lines", name="❤️ Heart Rate (bpm)",
-                            line=dict(width=2)
+                            mode="lines", name="❤️ Heart Rate", line=dict(width=2)
                         ))
                         fig.add_trace(go.Scatter(
                             x=df_proc["time_sec"], y=df_proc["spo2"],
-                            mode="lines", name="🩸 SpO₂ (%)",
-                            line=dict(width=2, dash="dot")
+                            mode="lines", name="🩸 SpO₂", line=dict(width=2, dash="dot")
                         ))
                         fig.update_layout(
-                            title=dict(
-                                text=f"{patient_name} - HR & SpO₂ Interactive Trends",
-                                x=0.5, xanchor="center", font=dict(size=20, color="#1c4e80")
-                            ),
-                            xaxis=dict(
-                                title="⏱️ Time (seconds)",
-                                showgrid=True,
-                                rangeslider=dict(visible=True)
-                            ),
-                            yaxis=dict(title="📊 Measured Values", showgrid=True),
+                            title=f"{patient_name} - HR & SpO₂ Trends",
+                            xaxis=dict(title="Time (sec)", rangeslider=dict(visible=True)),
+                            yaxis_title="Values",
                             hovermode="x unified",
-                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                             template="plotly_white",
-                            height=500,
-                            dragmode="zoom",
-                            hoverlabel=dict(bgcolor="white", font_size=13),
-                            margin=dict(l=40, r=20, t=60, b=40)
+                            dragmode="zoom"
                         )
-                        st.plotly_chart(fig, use_container_width=True, config={
-                            "displayModeBar": True,
-                            "displaylogo": False,
-                            "modeBarButtonsToAdd": ["drawline", "eraseshape"]
-                        })
+                        st.plotly_chart(fig, use_container_width=True)
 
                     pdf_buffer = generate_pdf_report(patient_info, df_proc)
                     st.download_button(
                         label="📥 Download PDF Report",
                         data=pdf_buffer,
-                        file_name=f"{patient_id}_{patient_name}_apnea_report.pdf",
+                        file_name=f"{patient_id}_{patient_name}_report.pdf",
                         mime="application/pdf"
                     )
 
                     if apnea_events > 0 and guardian:
                         send_email_alert(guardian, patient_name)
+            except Exception as e:
+                st.error(f"Error processing CSV: {e}")
 
 # --------------------------
-# Admin Section
+# Admin Dashboard
 # --------------------------
 elif st.session_state.get("logged_in") and st.session_state.get("role") == "admin":
     st.subheader("Admin Dashboard")
-    st.markdown("Manage the system - view registered users & patients.")
     conn = get_db_connection()
     df_users = pd.read_sql_query("SELECT username, role FROM users", conn)
     df_patients = pd.read_sql_query("SELECT * FROM patients", conn)
     conn.close()
-
     st.markdown("**Registered Users**")
     st.dataframe(df_users)
-
     st.markdown("**Stored Patients**")
     st.dataframe(df_patients)

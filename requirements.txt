@@ -1,0 +1,22 @@
+# Core
+pandas==2.2.2
+numpy==1.26.4
+joblib==1.4.2
+scikit-learn==1.5.0
+
+# Visualization
+matplotlib==3.9.0
+plotly==5.22.0
+
+# Web App
+streamlit==1.38.0
+
+# Utilities
+requests==2.32.3
+python-dotenv==1.0.1
+
+# PDF / Report
+reportlab==4.2.2
+
+# Database (standard lib, optional binary package)
+sqlite3-binary==0.0.1

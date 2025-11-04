@@ -1,5 +1,5 @@
 # app.py
-# 🩺 Smart Sleep Dashboard — Robust, Secure, Cloud-Ready Version
+# 🩺 Smart Sleep Dashboard — Final Stable Version (Cloud + Local Compatible)
 
 import streamlit as st
 st.set_page_config(page_title="Sleep Apnea Dashboard", layout="wide", page_icon="🩺")
@@ -35,7 +35,7 @@ else:
     EMAIL_USER = os.getenv("EMAIL_USER")
     EMAIL_PASS = os.getenv("EMAIL_PASS")
 
-# Auto-detect model path (works locally + on Streamlit Cloud)
+# Detect model in same directory (portable)
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "sleep_apnea_model.pkl")
 
 @st.cache_resource
@@ -43,21 +43,22 @@ def load_model():
     return joblib.load(MODEL_PATH)
 
 model = None
+TRAIN_FEATURES = []
+
 try:
     model = load_model()
+    TRAIN_FEATURES = list(getattr(model, "feature_names_in_", []))
     st.success("✅ Model loaded successfully!")
 except FileNotFoundError:
-    st.error("❌ Model file not found. Please ensure 'sleep_apnea_model.pkl' is in the same folder as app.py.")
+    st.error("❌ Model file not found. Ensure 'sleep_apnea_model.pkl' is in the same folder as app.py.")
 except Exception as e:
     st.warning(f"⚠️ Model couldn't be loaded automatically. Error: {e}")
-
-TRAIN_FEATURES = getattr(model, "feature_names_in_", []) if model else []
 
 # --------------------------
 # Utility functions
 # --------------------------
 def hash_password(password: str) -> str:
-    """Simple SHA256 hashing for local storage (better than plaintext)."""
+    """Simple SHA256 hashing for local storage."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 EMAIL_REGEX = re.compile(r"^[\w\.-]+@[\w\.-]+\.\w+$")
@@ -66,7 +67,7 @@ def is_valid_email(email: str) -> bool:
     return bool(email and EMAIL_REGEX.match(email))
 
 # --------------------------
-# Database (persistent sqlite file)
+# Database (SQLite)
 # --------------------------
 DB_PATH = "app_db.sqlite"
 
@@ -148,12 +149,11 @@ def feature_engineer(df, window=5):
 # --------------------------
 def send_email_alert(to_email, patient_name):
     if not EMAIL_USER or not EMAIL_PASS:
-        st.warning("Email alerts are disabled (missing credentials).")
+        st.warning("⚠️ Email alerts disabled (missing credentials).")
         return False
     if not is_valid_email(to_email):
-        st.error("Guardian email is invalid.")
+        st.error("Invalid guardian email.")
         return False
-
     try:
         subject = "⚠️ Sleep Apnea Alert!"
         body = f"Patient {patient_name} shows abnormal sleep patterns. Please check immediately."
@@ -168,6 +168,7 @@ def send_email_alert(to_email, patient_name):
         server.login(EMAIL_USER, EMAIL_PASS)
         server.send_message(msg)
         server.quit()
+
         st.success(f"📩 Alert email sent to {to_email}")
         return True
     except Exception as e:
@@ -184,7 +185,7 @@ def generate_pdf_report(patient_info, df_proc):
         ax.axis('off')
         info_text = (
             f"Patient ID: {patient_info['patient_id']}\n"
-            f"Patient Name: {patient_info['name']}\n"
+            f"Name: {patient_info['name']}\n"
             f"Age: {patient_info['age']}\n"
             f"Gender: {patient_info['gender']}\n"
             f"Weight: {patient_info['weight']} kg\n"
@@ -207,7 +208,7 @@ def generate_pdf_report(patient_info, df_proc):
     return buffer
 
 # --------------------------
-# UI & Layout
+# UI Setup
 # --------------------------
 def local_css():
     st.markdown("""
@@ -218,15 +219,15 @@ def local_css():
     """, unsafe_allow_html=True)
 
 local_css()
-
 init_db()
+
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.role = None
     st.session_state.user = None
 
 # --------------------------
-# Sidebar Navigation
+# Sidebar
 # --------------------------
 st.sidebar.title("Menu")
 menu = ["Doctor Register", "Doctor Login", "Admin Register", "Admin Login"]
@@ -236,7 +237,7 @@ st.markdown('<div class="title">🩺 Smart Sleep Dashboard</div>', unsafe_allow_
 st.markdown("---")
 
 # --------------------------
-# Auth System
+# Auth Section
 # --------------------------
 if choice in ("Doctor Register", "Admin Register"):
     role = "doctor" if choice == "Doctor Register" else "admin"
@@ -308,11 +309,12 @@ if st.session_state.get("logged_in") and st.session_state.get("role") == "doctor
                     st.error("CSV must contain 'heart_rate' and 'spo2' columns.")
                 else:
                     df_proc = feature_engineer(df)
-                    X_test = (
-                        df_proc.reindex(columns=TRAIN_FEATURES, fill_value=0)
-                        if TRAIN_FEATURES else
-                        df_proc.drop(columns=['apnea_label','patient_id','time_sec'], errors='ignore')
-                    )
+
+                    if TRAIN_FEATURES is not None and len(TRAIN_FEATURES) > 0:
+                        X_test = df_proc.reindex(columns=list(TRAIN_FEATURES), fill_value=0)
+                    else:
+                        X_test = df_proc.drop(columns=['apnea_label','patient_id','time_sec'], errors='ignore')
+
                     df_proc["predicted_apnea"] = model.predict(X_test) if model else 0
                     apnea_events = int(df_proc["predicted_apnea"].sum())
 
